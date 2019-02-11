@@ -44,7 +44,7 @@ dependencies {
     "org.slf4j:slf4j-api:1.7.21",
     "org.slf4j:slf4j-simple:1.7.21",
     "org.threadly:threadly:5.29",
-    "org.threadly:litesockets-http-server:0.20",
+    "org.threadly:litesockets-http-server:0.22",
     "org.threadly:litesockets:4.9"
   )
 }

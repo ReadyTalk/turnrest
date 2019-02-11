@@ -85,7 +85,7 @@ public class TurnRest {
     PS.scheduleAtFixedRate(()->NetworkMetrics.updateNetworkMetrics(), 500, 500);
 
     this.httpServer = new HTTPServer(tse, this.publicAddress.getAddress().getHostAddress(), this.publicAddress.getPort());
-    this.httpServer.addHandler((x,y,z)->handler(x,y,z));
+    this.httpServer.setHandler((x,y,z)->handler(x,y,z));
     loadConfigFile();
     configureHealthChecks();
     monitorHandler = new MonitorHTTPHandler();
@@ -96,7 +96,7 @@ public class TurnRest {
       adminHttpServer = httpServer;
     } else {
       this.adminHttpServer = new HTTPServer(tse, this.adminAddress.getAddress().getHostAddress(), this.adminAddress.getPort());
-      this.adminHttpServer.addHandler((x,y,z)->adminHandler(x,y,z));  
+      this.adminHttpServer.setHandler((x,y,z)->adminHandler(x,y,z));  
     }
     hl.add(new TurnRestHTTPHandler());
     hl.add(defaultHandler);
