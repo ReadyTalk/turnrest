@@ -215,14 +215,18 @@ public class Utils {
       }
     }
     if (djwt != null) {
-      try {
-        for(Map.Entry<String, GuavaCachedJwkProvider> me: jwkProviders.entrySet()) {
+      for(Map.Entry<String, GuavaCachedJwkProvider> me: jwkProviders.entrySet()) {
+        try {
           me.getValue().get(kid);
           log.info("{}: Found provider:{} for JWT", clientID, me.getKey());
           return djwt;
+        } catch (JwkException e) {
         }
-      } catch (JwkException e) {
       }
+      if(trc.getJwtPublicKeys().size() > 0) {
+        log.info("{}: Could not find JWK for JWT, trying static public keys");
+      }
+
       for(String key: trc.getJwtPublicKeys()) {
         if(Utils.checkJWT(clientID, Base64.getDecoder().decode(key), jwtClaim)) {
           log.info("{}: Found static public key for JWT:\"{}\" for JWT", clientID, key);
