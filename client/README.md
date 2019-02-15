@@ -1,12 +1,12 @@
-#TurnRestClient
+# TurnRestClient
 
-This is a JavaScript client for doing requests against a TurnRest server.  A description of what this is work and the basics of how it works can be found at:
+This is a JavaScript client for doing requests against a TurnRest server.  A description of what this is and the basics of how it works can be found at:
 
 [IETF rtcweb-turn-rest](https://tools.ietf.org/html/draft-uberti-rtcweb-turn-rest-00)
 
-This client make a request to a TurnRest server and retrives a Json object with creditials and locations of services.  This request is cached until the TTL of the response is getting ready to expire.
+This client makes a request to a TurnRest server and retrives a JSON object with credentials and locations of services.  This request is cached until the TTL of the response is getting ready to expire.
 
-##API
+## API
 The client only has one simple function. `getTurnInfo()`
 The function takes the following arguments:
 
@@ -14,7 +14,7 @@ The function takes the following arguments:
 * `jwt`, This is optional (defaults to None)  If your setup requires a JWT to get turn credentials (a very good idea) then you should set this. 
 * `force`, This forces a new request regardless of if there is one cached or not.  This should only really be used for testing or if you know what you are doing.
 
-##Example
+## Example
 
 ```javascript
 
@@ -48,13 +48,10 @@ The structure of the returned JSON object looks like this:
 }
 
 ```
-The username/password are the username/password that can be used for the turn server.  
+The username/password in the returned JSON are the username/password that are used to login to the turn server.
 
-* Note: the username starts with a number that is the `epoch` time in seconds that the user will expire at (~15000 seconds when the request was made)
+* Note: the username starts with a number that is the `epoch` time in seconds that the user's session expires (~15000 seconds when the request was made)
 
 The `TTL` is how long this username/password will be valid for.
 
-The `iceServers` section is a convinance, this is **currently** the format webRTC takes in the iceServers parameters so it is filled out for you.  Depending on how the server is configured this may or maynot include a stun server, and will have at least 1 turn server, though more are defenitly possible.
-
-
-
+The `iceServers` section is a convenience, this is **currently** the format webRTC takes in the iceServers parameters so it is filled out for you.  Depending on how the server is configured this may or maynot include a stun server, and will have at least 1 turn server, though more are defenitly possible.
