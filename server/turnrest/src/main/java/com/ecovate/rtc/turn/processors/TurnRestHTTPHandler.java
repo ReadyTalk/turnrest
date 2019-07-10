@@ -1,7 +1,6 @@
 package com.ecovate.rtc.turn.processors;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +11,7 @@ import org.threadly.util.ExceptionUtils;
 import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.ecovate.rtc.turn.HTTPHandler;
+import com.ecovate.rtc.turn.JWTUtils;
 import com.ecovate.rtc.turn.SimpleResponse;
 import com.ecovate.rtc.turn.TurnRest;
 import com.ecovate.rtc.turn.TurnRest.ClientID;
@@ -24,17 +24,25 @@ import io.prometheus.client.Histogram;
 
 public class TurnRestHTTPHandler implements HTTPHandler {
   private static final Logger log = LoggerFactory.getLogger(TurnRestHTTPHandler.class);
-  
+
+
   private final Counter turnRequests = new Counter.Builder()
-      .help("Total turn HTTP requests").name(TurnRest.TURN_REST+"turn_http_requests").register();
+      .help("Total turn HTTP requests")
+      .name(TurnRest.TURN_REST+"turn_http_requests")
+      .register(Utils.getMetricsRegistry());
   private final Counter badTurnRequests = new Counter.Builder()
-      .help("Bad turn HTTP requests").name(TurnRest.TURN_REST+"turn_http_fail").register();
+      .help("Bad turn HTTP requests")
+      .name(TurnRest.TURN_REST+"turn_http_fail")
+      .register(Utils.getMetricsRegistry());
   private final Histogram turnRequestLatency = Histogram.build()
-      .name("turn_requests_latency_seconds").help("HTTP Turn Request latency in seconds.").register();
-  
-  public TurnRestHTTPHandler() {
+      .name("turn_requests_latency_seconds")
+      .help("HTTP Turn Request latency in seconds.")
+      .register(Utils.getMetricsRegistry());
+  private final JWTUtils ju;
+
+  public TurnRestHTTPHandler(JWTUtils ju) {
+    this.ju = ju;
   }
-  
 
   @Override
   public SimpleResponse handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
@@ -42,7 +50,7 @@ public class TurnRestHTTPHandler implements HTTPHandler {
     log.info("{}: processing turn user request", clientID);
     turnRequests.inc();
     boolean authed = false;
-    DecodedJWT djwt = null;
+    boolean hasScopes = false;
     String jwtUser = null;
     if(trc.getForcedUser() != null) {
       jwtUser = trc.getForcedUser();
@@ -55,28 +63,11 @@ public class TurnRestHTTPHandler implements HTTPHandler {
         authed = true;
       } else {
         log.info("{}: Processing JWT", clientID);
-        djwt = Utils.validateHTTPJWT(clientID, trc, httpRequest);
-        if(djwt != null) {
+        final DecodedJWT djwt = ju.getJWT(httpRequest);
+        hasScopes = ju.checkScopes(trc.getRequiredScopes(), false, djwt);
+        if(hasScopes && ju.validateJWT(clientID, djwt)) {
+          authed = true;
           log.info("{}: Got valid JWT", clientID);
-          List<String> reqScopes = trc.getRequiredScopes();
-          List<String> scopes = djwt.getClaim("scp").asList(String.class);
-          if(reqScopes != null && reqScopes.size() > 0) {
-            if(scopes != null && scopes.size() > 0) {
-              for(String rs: reqScopes) {
-                if(scopes.contains(rs)) {
-                  authed = true;
-                  log.info("{}: Authed with JWT, matched a scope", clientID);
-                  break;
-                }
-              }
-            }
-            if (!authed) {
-              log.error("{}: could not find a required scope in the JWT", clientID);
-            }
-          } else if(reqScopes == null || reqScopes.size() == 0) {
-            log.info("{}: Authed with JWT, no required scopes.", clientID);
-            authed = true;  
-          }
           if(authed && trc.getForcedUser() == null) {
             if(trc.getUserClaim() != null) {
               Claim tmp = djwt.getClaim(trc.getUserClaim());

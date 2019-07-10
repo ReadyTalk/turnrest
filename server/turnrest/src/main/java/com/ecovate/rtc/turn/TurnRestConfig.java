@@ -41,7 +41,8 @@ public class TurnRestConfig {
       String[] jwtPublicKeys,
       String[] requiredJWTScope,
       String userClaim,
-      Long ttl, String forcedUser, 
+      Long ttl, 
+      String forcedUser, 
       String forcedPassword,
       String allowedOrigin) {
     this.secretKey = secretKey;

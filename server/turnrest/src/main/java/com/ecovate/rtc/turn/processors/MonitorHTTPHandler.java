@@ -30,7 +30,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.Counter;
-import io.prometheus.client.dropwizard.DropwizardExports;
 import io.prometheus.client.exporter.common.TextFormat;
 
 public class MonitorHTTPHandler implements HTTPHandler {
@@ -73,11 +72,7 @@ public class MonitorHTTPHandler implements HTTPHandler {
       .setHeader(HTTPConstants.HTTP_KEY_CONTENT_TYPE, "text/html")
       .build(), ByteBuffer.wrap(MONITOR_PAGE.getBytes()));
   
-  private final DropwizardExports DWE;
-
   public MonitorHTTPHandler() {
-    DWE = new DropwizardExports(Utils.getMetricsRegistry());
-    CollectorRegistry.defaultRegistry.register(DWE);
     updateHealthCheck();
     updateMetrics();
   }

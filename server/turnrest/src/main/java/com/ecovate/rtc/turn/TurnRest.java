@@ -3,7 +3,6 @@ package com.ecovate.rtc.turn;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.security.Key;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -12,13 +11,13 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threadly.concurrent.PriorityScheduler;
-import org.threadly.litesockets.ThreadedSocketExecuter;
+import org.threadly.litesockets.SocketExecuter;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.shared.HTTPRequestMethod;
-import org.threadly.litesockets.protocols.http.shared.HTTPResponseCode;
 import org.threadly.litesockets.server.http.HTTPServer;
 import org.threadly.litesockets.server.http.HTTPServer.BodyFuture;
 import org.threadly.litesockets.server.http.HTTPServer.ResponseWriter;
+import org.threadly.util.AbstractService;
 import org.threadly.util.Clock;
 import org.threadly.util.StringUtils;
 
@@ -27,29 +26,28 @@ import com.ecovate.rtc.turn.processors.DefaultHTTPHandler;
 import com.ecovate.rtc.turn.processors.MonitorHTTPHandler;
 import com.ecovate.rtc.turn.processors.PingHTTPHandler;
 import com.ecovate.rtc.turn.processors.TurnRestHTTPHandler;
-import com.ecovate.rtc.turn.stats.MemoryMetrics;
 import com.ecovate.rtc.turn.stats.NetworkMetrics;
 
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.security.Keys;
 import io.prometheus.client.Counter;
 import io.prometheus.client.Gauge;
 import io.prometheus.client.Histogram;
+import io.prometheus.client.hotspot.DefaultExports;
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.Argument;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 
-public class TurnRest {
+public class TurnRest extends AbstractService {
   private static final int CONFIG_FILE_SCAN_TIMER_MS = 1000*30; //30 seconds 
   public static final String TURN_REST = "turn_rest_";
 
   private final Logger log = LoggerFactory.getLogger(TurnRest.class);
-  private final PriorityScheduler PS = new PriorityScheduler(10);
-  private final ThreadedSocketExecuter tse = new ThreadedSocketExecuter(PS, 100, 1);
+
+
   private final List<HTTPHandler> handlers;
   private final Runnable cfr = ()->loadConfigFile();
+  private final Runnable networkMetricsRunner = ()->NetworkMetrics.updateNetworkMetrics();
   private final MonitorHTTPHandler monitorHandler;
   private final PingHTTPHandler pingHandler = new PingHTTPHandler();
   private final DefaultHTTPHandler defaultHandler = new DefaultHTTPHandler(); 
@@ -65,26 +63,37 @@ public class TurnRest {
       .help("Unhandled HTTP requests").name(TURN_REST+"http_unhandled").register();
   private final Histogram httpRequestLatency = Histogram.build()
       .name(TURN_REST+"http_requests_latency_seconds").help("HTTP Request latency in seconds.").register();
+  private final PriorityScheduler ps;
+  private final SocketExecuter se;
   private final File cf;
+  private final JWTUtils ju;
+  private final long fileScanTime; 
+
   private final SimpleResponse optionsResponse;
   private volatile long cf_modTime = -1;
   private volatile TurnRestConfig config = null;
 
   public TurnRest(InetSocketAddress publicAddress, InetSocketAddress adminAddress, File cf) throws IOException {
-    this.tse.start();
+    this(Utils.getScheduler(), Utils.getSocketExecuter(), publicAddress, adminAddress, cf, CONFIG_FILE_SCAN_TIMER_MS);
+  }
+
+  public TurnRest(PriorityScheduler ps, 
+      SocketExecuter se, 
+      InetSocketAddress publicAddress, 
+      InetSocketAddress adminAddress, 
+      File cf, 
+      long fileScanTime) throws IOException {
+    this.ps = ps;
+    this.se = se;
     this.cf = cf;
+    this.ju = new JWTUtils(ps);
     this.publicAddress = publicAddress;
     this.adminAddress = adminAddress;
-    
-    optionsResponse = new SimpleResponse(Utils.getOKResponse());
-    
-    PS.scheduleAtFixedRate(()->uptimeCounter.set(Clock.lastKnownForwardProgressingMillis()), 500, 500);
-    MemoryMetrics.registerMemoryMetrics();
-    PS.scheduleAtFixedRate(()->MemoryMetrics.updateMemoryStats(), 500, 500);
-    NetworkMetrics.registerNetworkMetrics(tse);
-    PS.scheduleAtFixedRate(()->NetworkMetrics.updateNetworkMetrics(), 500, 500);
+    this.fileScanTime = fileScanTime;
 
-    this.httpServer = new HTTPServer(tse, this.publicAddress.getAddress().getHostAddress(), this.publicAddress.getPort());
+    optionsResponse = new SimpleResponse(Utils.getOKResponse());
+
+    this.httpServer = new HTTPServer(this.se, this.publicAddress.getAddress().getHostAddress(), this.publicAddress.getPort());
     this.httpServer.setHandler((x,y,z)->handler(x,y,z));
     loadConfigFile();
     configureHealthChecks();
@@ -95,17 +104,39 @@ public class TurnRest {
       hl.add(monitorHandler);
       adminHttpServer = httpServer;
     } else {
-      this.adminHttpServer = new HTTPServer(tse, this.adminAddress.getAddress().getHostAddress(), this.adminAddress.getPort());
+      this.adminHttpServer = new HTTPServer(this.se, this.adminAddress.getAddress().getHostAddress(), this.adminAddress.getPort());
       this.adminHttpServer.setHandler((x,y,z)->adminHandler(x,y,z));  
     }
-    hl.add(new TurnRestHTTPHandler());
+    hl.add(new TurnRestHTTPHandler(ju));  
     hl.add(defaultHandler);
     handlers = Collections.unmodifiableList(hl);
-    this.httpServer.start();
-    adminHttpServer.startIfNotStarted();
+  }
 
-    PS.scheduleAtFixedRate(cfr, CONFIG_FILE_SCAN_TIMER_MS, CONFIG_FILE_SCAN_TIMER_MS);
+
+  @Override
+  protected void startupService() {
+    //TODO: change to startTime metric
+    this.ps.scheduleAtFixedRate(()->uptimeCounter.set(Clock.lastKnownForwardProgressingMillis()), 500, 500);
+
+    NetworkMetrics.registerNetworkMetrics(this.se);
+    this.ps.scheduleAtFixedRate(networkMetricsRunner, 500, 500);
+
+    ps.scheduleAtFixedRate(cfr, fileScanTime, fileScanTime);
+    httpServer.start();
+    adminHttpServer.startIfNotStarted();
     log.info("Server Started.");
+  }
+
+  @Override
+  protected void shutdownService() {
+    httpServer.stopIfRunning();
+    adminHttpServer.stopIfRunning();
+    ps.remove(cfr);
+    ps.remove(networkMetricsRunner);
+  }
+
+  public JWTUtils getJWTUtils() {
+    return ju;
   }
 
   private void configureHealthChecks() {
@@ -118,7 +149,8 @@ public class TurnRest {
       try {
         TurnRestConfig lc  = TurnRestConfig.openConfigFile(cf);
         Utils.processHTTPDefaults(lc);
-        Utils.setJWKProviders(new HashSet<String>(lc.getJwkURLs()));
+        ju.updateJWKProvider(new HashSet<String>(lc.getJwkURLs()));
+        ju.updateStaticB64Keys(new HashSet<>(lc.getJwtPublicKeys()));
         config = lc;
         log.info("loadded new config:\n{}", config.toString());
       } catch (IOException e) {
@@ -128,7 +160,7 @@ public class TurnRest {
       }
     }
   }
-  
+
   private void adminHandler(HTTPRequest httpRequest, ResponseWriter rw, BodyFuture bodyListener) {
     Histogram.Timer httpTimer = httpRequestLatency.startTimer();
     totalHTTPCounter.inc();
@@ -196,6 +228,7 @@ public class TurnRest {
       rw.sendHTTPResponse(sr.getHr());
       rw.writeBody(sr.getBody());
       rw.closeOnDone();
+      adminHttpServer.startIfNotStarted();
       rw.done();
     } else {
       log.error("{}: Got unhandled Message, path:{}", clientID, path);
@@ -215,7 +248,7 @@ public class TurnRest {
 
     @Override
     protected Result check() throws Exception {
-      int clients = tse.getClientCount();
+      int clients = se.getClientCount();
       if(clients > max_clients) {
         return Result.unhealthy("To many clients connected!  current:"+clients+" Max:"+max_clients);
       } else {
@@ -223,24 +256,24 @@ public class TurnRest {
       }
     }
   }
-  
+
   public static class ClientID {
-    
+
     public final String clientID;
-    
+
     public ClientID() {
       this.clientID = StringUtils.makeRandomString(15).toUpperCase();
     }
-    
+
     public ClientID(String clientID) {
       this.clientID = clientID;
     }
-    
+
     @Override
     public int hashCode() {
       return clientID.hashCode();
     }
-    
+
     @Override
     public String toString() {
       return clientID;
@@ -249,6 +282,7 @@ public class TurnRest {
 
   public static void main(String[] args) throws IOException, InterruptedException {
     LoggingConfig.configureLogging();
+    DefaultExports.initialize();
     String env_cf= System.getenv("TURNREST_CONFIG_FILE");
     String env_pa = System.getenv("TURNREST_PUBLIC_ADDRESS");
     String env_aa = System.getenv("TURNREST_ADMIN_ADDRESS");
@@ -292,7 +326,7 @@ public class TurnRest {
     final String aa = res.getString("admin_address");
 
 
-//    log.info("Starting Service with the following arguments:\nconfigFile:{}\npublicAddress:{}\nadminAddress:{}", cf, pa, aa);
+    //    log.info("Starting Service with the following arguments:\nconfigFile:{}\npublicAddress:{}\nadminAddress:{}", cf, pa, aa);
     final File cff = new File(cf);
     if(!cff.exists() || !cff.canRead()) {
       throw new RuntimeException("Can not find or read file:"+cf);
@@ -301,10 +335,12 @@ public class TurnRest {
     final InetSocketAddress admin_addr = new InetSocketAddress(aa.split(":")[0],Integer.parseInt(aa.split(":")[1]));
 
     TurnRest H = new TurnRest(public_addr, admin_addr, cff);
+    H.startIfNotStarted();
     synchronized(H) {
       while(true) {
         H.wait();
       }
     }
   }
+
 }
