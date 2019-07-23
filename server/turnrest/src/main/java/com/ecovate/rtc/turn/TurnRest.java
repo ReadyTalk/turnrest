@@ -22,6 +22,7 @@ import org.threadly.util.Clock;
 import org.threadly.util.StringUtils;
 
 import com.codahale.metrics.health.HealthCheck;
+import com.ecovate.rtc.turn.processors.ClientHTTPHandler;
 import com.ecovate.rtc.turn.processors.DefaultHTTPHandler;
 import com.ecovate.rtc.turn.processors.MonitorHTTPHandler;
 import com.ecovate.rtc.turn.processors.PingHTTPHandler;
@@ -99,6 +100,7 @@ public class TurnRest extends AbstractService {
     configureHealthChecks();
     monitorHandler = new MonitorHTTPHandler();
     ArrayList<HTTPHandler> hl = new ArrayList<>();
+    hl.add(new ClientHTTPHandler());
     hl.add(pingHandler);
     if(publicAddress.equals(adminAddress)) {
       hl.add(monitorHandler);

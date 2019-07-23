@@ -21,7 +21,6 @@ import org.threadly.litesockets.ThreadedSocketExecuter;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.request.HTTPRequestBuilder;
 import org.threadly.litesockets.protocols.http.shared.HTTPConstants;
-import org.threadly.util.StringUtils;
 
 import com.auth0.jwk.JwkException;
 import com.auth0.jwt.JWT;
