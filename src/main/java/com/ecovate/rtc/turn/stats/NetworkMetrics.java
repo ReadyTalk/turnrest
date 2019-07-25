@@ -10,9 +10,14 @@ import io.prometheus.client.Counter;
 public class NetworkMetrics {
   
   private static final Counter bytesRead = new Counter.Builder()
-      .help("Total number of Bytes Read").name(TurnRest.TURN_REST+"total_bytes_read").create();
+      .help("Total number of Bytes Read")
+      .name(TurnRest.TURN_REST+"total_bytes_read")
+      .create();
   private static final Counter bytesWrite = new Counter.Builder()
-      .help("Total number of Bytes Written").name(TurnRest.TURN_REST+"total_bytes_write").create();
+      .help("Total number of Bytes Written")
+      .name(TurnRest.TURN_REST+"total_bytes_write")
+      .create();
+  
   private static volatile SocketExecuter SE = null;
   private static volatile long lastRead = 0;
   private static volatile long lastWrite = 0;

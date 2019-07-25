@@ -135,7 +135,7 @@ public class TurnRest extends AbstractService {
 
   @Override
   protected void startupService() {
-    NetworkMetrics.registerNetworkMetrics(this.se);
+    NetworkMetrics.registerNetworkMetrics(this.se, Utils.getMetricsRegistry());
     this.ps.scheduleAtFixedRate(networkMetricsRunner, 500, 500);
 
     ps.scheduleAtFixedRate(cfr, fileScanTime, fileScanTime);
