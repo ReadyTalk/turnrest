@@ -1,24 +1,24 @@
 # TurnRest
 
-This is a server/client implementation of [IETF rtcweb-turn-rest](https://tools.ietf.org/html/draft-uberti-rtcweb-turn-rest-00) using JWT for the creation of the limited time turn creditials.
+This is a server/client implementation of [IETF rtcweb-turn-rest](https://tools.ietf.org/html/draft-uberti-rtcweb-turn-rest-00) using JWT for the creation of the limited time turn credentials.
 
 ## TurnServer
 
-The TurnServer is a simple rest server for providing turn creditials to clients.  These creditials expire after a given period of time which allows the hosting of a turn server that does not need a list or database of creditials to be secure.
+The TurnServer is a simple rest server for providing turn credentials to clients.  These credentials expire after a given period of time which allows the hosting of a turn server that does not need a list or database of credentials to be secure.
 
-Currently the TurnServer only supports doing JWT auth using static keys or JWK urls, but other auth methods could be added.
+Currently, the TurnServer only supports doing JWT auth using static keys or JWK URLs, but other auth methods could be added.
 
-The TurnServer also supports prometheus stats on its admin interface.  It can use the same port as the standard interface if you dont care about the stats being public.
+The TurnServer also supports Prometheus stats on its admin interface.  It can use the same port as the standard interface if you don't care about the stats being public.
 
 ### Server configuration
 
-The Server takes a json config file here is an example of it:
+The Server takes a JSON config file here is an example of it:
 
 ```json
 {
   "secretKey":"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "allowedOrigin": "*",
-  "ttl": 300, 
+  "ttl": 300,
   "forcedUser": "username",
   "forcedPassword": "staticpassword",
   "ignoreJWT": false,
@@ -46,16 +46,16 @@ Here is a breakdown of the fields:
 
 * secretKey: This is the shared key used by this server and the turn server to generate the password hash.  This is required if you are not forcing a static password.
 * allowedOrigin: This sets the allowed origin headers in the server for XSS.
-* ttl: time-to-live, this is in seconds, this is how many seconds the user can use turn for.  Generally for voip/video calls the max call time can be used here, but > 1 hour is generally recommended.
+* ttl: time-to-live, this is in seconds, this is how many seconds the user can use turn for.  Generally, for VoIP/video calls the max call time can be used here, but > 1 hour is generally recommended.
 * forceUser:  This forces the username set in the response, it will look like "<epochtime>:forcedUser" unless forcedPassword is also set then it will just have the username
 * forcedPassword:  This is mainly for testing.  This uses a static password, bypassing all of the turn/epoch/auth time, and the user will not have the epoch in the user name if this is set.
-* ignoreJWT: If true all requests for turn creditials must pass JWT auth, if false anyone can get JWT auth (for testing usually).
-* userClaim: Which JWT property to use as the users name.  If none is provided forcedUser will be used, if thats also not provided it will be a random string.
+* ignoreJWT: If true all requests for turn credentials must pass JWT auth. If false anyone can get JWT auth (for testing usually).
+* userClaim: Which JWT property to use as the user's name.  If none is provided forcedUser will be used. If that's also not provided it will be a random string.
 * requiredJWTScope: This is a list of scopes that are used to validate the JWT can get turn creds.  NOTE: as long as one matches this will pass.
-* jwkURIS: This is a list of JWK uris to check the JWT against.  We will check them in all in parallel with the jwtPublicKeys.  As long as one is valid for the JWT it will pass.
+* jwkURIS: This is a list of JWK URIs to check the JWT against.  We will check them in all in parallel with the jwtPublicKeys.  As long as one is valid for the JWT it will pass.
 * jwtPublicKeys: A List of public Keys to check JWTs against.  This is more used for testing or backend services.
-* turnURIS: a list of turnServers to tell the client about when returning the turn creditials.
-* stunURIS: A list of stun Serrvers to tell the client about then returing the turn creditials.
+* turnURIS: a list of turnServers to tell the client about when returning the turn credentials.
+* stunURIS: A list of stun servers to tell the client about then returning the turn credentials.
 
 
 
@@ -64,7 +64,7 @@ Here is a breakdown of the fields:
 This is a JavaScript client for doing requests against a TurnRest server.  A description of what this is and the basics of how it works can be found at:
 
 
-This client makes a request to a TurnRest server and retrives a JSON object with credentials and locations of services.  This request is cached until the TTL of the response is getting ready to expire.
+This client makes a request to a TurnRest server and retrieves a JSON object with credentials and locations of services.  This request is cached until the TTL of the response is getting ready to expire.
 
 ### Implementation
 
@@ -142,7 +142,7 @@ The username/password are the username/password that can be used for the turn se
 
 The `TTL` is how long this username/password will be valid for.
 
-The `iceServers` section is a convenience, this is **currently** the format webRTC takes in the iceServers parameters so it is filled out for you.  Depending on how the server is configured this may or may not include a stun server and will have at least 1 turn server, though more servers are definitely possible.
+The `iceServers` section is a convenience, this is **currently** the format webRTC takes in the iceServers parameters so it is filled out for you.  Depending on how the server is configured this may or may not include a stun server and will have at least 1 turn server, though more servers are possible.
 
 ### NOTES:
 
