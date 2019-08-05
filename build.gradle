@@ -1,0 +1,83 @@
+plugins {
+  id 'java'
+  id 'com.github.johnrengelman.shadow' version '2.0.4'
+  id 'application'
+  id 'maven'
+  id 'eclipse'
+}
+
+mainClassName = 'com.ecovate.rtc.turn.TurnRest'
+
+repositories {
+    mavenCentral()
+    maven {
+      url 'https://oss.sonatype.org/content/repositories/snapshots/'
+    }
+}
+
+
+applicationName = 'turnrest'
+version=new File("${project.rootDir}/VERSION").text.trim()
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+
+dependencies {
+  testCompile(
+  'junit:junit:4.12',
+  "org.threadly:litesockets-http-client:0.24",
+
+  )
+
+  compile (
+    "com.auth0:java-jwt:3.4.1",
+    "com.auth0:jwks-rsa:0.7.0",
+    "io.prometheus:simpleclient_dropwizard:0.6.0",
+    "io.prometheus:simpleclient_servlet:0.6.0",
+    "io.prometheus:simpleclient_hotspot:0.6.0",
+    "com.google.code.gson:gson:2.8.5",
+    "io.jsonwebtoken:jjwt-api:0.10.5",
+    "io.jsonwebtoken:jjwt-jackson:0.10.5",
+    "io.jsonwebtoken:jjwt-impl:0.10.5",
+    "io.dropwizard.metrics:metrics-core:4.0.5",
+    'io.dropwizard.metrics:metrics-jvm:4.0.5',
+    'io.dropwizard.metrics:metrics-healthchecks:4.0.5',
+    'io.dropwizard.metrics:metrics-json:4.0.5',
+    'io.dropwizard.metrics:metrics-servlets:4.0.5',
+    "net.sourceforge.argparse4j:argparse4j:0.8.1",
+    "org.slf4j:slf4j-api:1.7.21",
+    "org.slf4j:slf4j-simple:1.7.21",
+    "org.threadly:threadly:5.38",
+    "org.threadly:litesockets-http-server:0.24",
+    "org.threadly:litesockets:4.10"
+  )
+}
+
+test {
+  getReports().getJunitXml().setDestination(file("${buildDir}/reports/tests/xml"))
+  getReports().getHtml().setDestination(file("${buildDir}/reports/tests/html"))
+  setBinResultsDir(file("${buildDir}/reports/tests/bin"))
+}
+
+javadoc {
+  source = sourceSets.main.allJava
+  options.memberLevel = org.gradle.external.javadoc.JavadocMemberLevel.PUBLIC
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+  classifier = 'javadoc'
+  from 'build/docs/javadoc'
+}
+
+task sourcesJar(type: Jar) {
+  from sourceSets.main.allSource
+  classifier = 'sources'
+}
+
+jar {
+    baseName "turnrest"
+}
+shadowJar {
+  archiveName "turnrest-${version}-all.jar"
+}
