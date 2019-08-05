@@ -10,6 +10,7 @@ DP="readytalk/turnrest:"
 DPlocal="${DP}local"
 DPL="${DP}latest"
 DPV="${DP}${VERSION}"
+DPS="${DP}latest-snapshot"
 
 docker build --build-arg VERSION=$VERSION -t "${DPlocal}" .
 
@@ -19,7 +20,14 @@ echo "Created tag: ${DPV}"
 
 if [[ ${TRAVIS} && "${TRAVIS_BRANCH}" == "master" && -n $DOCKER_USERNAME && -n $DOCKER_PASSWORD ]]; then
   docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-  docker tag ${DPlocal} ${DPL}
   docker push ${DPV}
-  docker push ${DPL}
+  if [[ ${VERSION} == *-SNAPSHOT ]]; then
+    docker tag ${DPlocal} ${DPS}
+    echo "Created Tag:${DPS}"
+    docker push ${DPS}
+  else
+    docker tag ${DPlocal} ${DPL}
+    echo "Created Tag:${DPL}"
+    docker push ${DPL}
+  fi
 fi
