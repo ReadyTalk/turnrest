@@ -11,6 +11,8 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.threadly.concurrent.future.ImmediateResultListenableFuture;
+import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.response.HTTPResponseBuilder;
 import org.threadly.litesockets.protocols.http.shared.HTTPConstants;
@@ -114,7 +116,7 @@ public class ClientHTTPHandler implements HTTPHandler {
   }
 
   @Override
-  public SimpleResponse handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
+  public ListenableFuture<SimpleResponse> handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
     final Timer timer = clientTimes.startTimer();
     final String hrm = httpRequest.getHTTPRequestHeader().getRequestMethod();
     try {
@@ -126,18 +128,18 @@ public class ClientHTTPHandler implements HTTPHandler {
         if(path.length() == 0) {
           log.info("{}:Client Served Index", clientID);
           clientRequests.labels(hrm, "index").inc();
-          return rootResponse;
+          return new ImmediateResultListenableFuture<>(rootResponse);
         } else {
           SimpleResponse fileResponse = files.get(path);
           if(fileResponse != null) {
             clientRequests.labels(hrm, path).inc();
             log.info("{}:Client Served File:{}", clientID, path);
-            return fileResponse;
+            return new ImmediateResultListenableFuture<>(fileResponse);
           }
         }
       }
       clientRequests.labels(hrm, "error").inc();
-      return new SimpleResponse(HTTPUtils.getNotFoundResponse());
+      return new ImmediateResultListenableFuture<>(new SimpleResponse(HTTPUtils.getNotFoundResponse()));
     } finally {
       timer.close();
     }

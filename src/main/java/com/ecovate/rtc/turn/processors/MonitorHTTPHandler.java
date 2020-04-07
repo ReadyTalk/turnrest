@@ -10,6 +10,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.threadly.concurrent.future.ImmediateResultListenableFuture;
+import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.shared.HTTPConstants;
 import org.threadly.litesockets.protocols.http.shared.HTTPResponseCode;
@@ -72,9 +74,9 @@ public class MonitorHTTPHandler implements HTTPHandler {
 
 
   @Override
-  public SimpleResponse handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
+  public ListenableFuture<SimpleResponse> handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
     log.info("{}: processing metrics/health", clientID);
-    return processHealthCheck(httpRequest);
+    return new ImmediateResultListenableFuture<>(processHealthCheck(httpRequest));
   }
 
 

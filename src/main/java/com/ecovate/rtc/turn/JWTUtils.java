@@ -252,75 +252,84 @@ public class JWTUtils extends AbstractService {
     return requiredScopes.size() == ts;
   }
 
-  public boolean validateJWT(final ClientID clientID, final DecodedJWT djwtFinal) {
+  public ListenableFuture<Boolean> validateJWT(final ClientID clientID, final DecodedJWT djwtFinal) {
+    final SettableListenableFuture<Boolean> vslf = new SettableListenableFuture<Boolean>();
     
-    final String jwtString = djwtFinal.getToken();
-    final String keyID = djwtFinal.getKeyId();
-    final String tokenSha = Utils.SHAString(jwtString);
-    Histogram.Timer timer = jwtProcessLatency.labels("cached").startTimer();
-    Long time = cachedJWTs.get(tokenSha);
-    if(time != null && Clock.lastKnownForwardProgressingMillis() < time+300000) {
-      log.info("{}: JWT in valid JWT cache:{}", clientID, jwtString);
-      timer.close();
-      return true;
-    }
-    timer = jwtProcessLatency.labels("lookup").startTimer();
-    List<ListenableFuture<DecodedJWT>> llf = new ArrayList<>();
-    for(Map.Entry<String, GuavaCachedJwkProvider> me: jwkProviders.entrySet()) {
-      final GuavaCachedJwkProvider jwkCache = me.getValue();
-      final String url = me.getKey();
-      final SettableListenableFuture<DecodedJWT> slf = new SettableListenableFuture<>(false);
-      llf.add(slf);
-      Utils.getScheduler().execute(()->{
-        try {
-          Jwk jwk = jwkCache.get(keyID);
-          checkJWT(clientID, url, jwk.getPublicKey(), djwtFinal);
-          slf.setResult(djwtFinal);
-        } catch (Exception e) {
-          slf.setFailure(e);
-        }
-      });
-    }
-    for(Map.Entry<String, PublicKey>me: staticJWTKeys.entrySet()) {
-      final SettableListenableFuture<DecodedJWT> slf = new SettableListenableFuture<>(false);
-      llf.add(slf);
-      Utils.getScheduler().execute(()->{
-        try {
-          checkJWT(clientID, me.getKey(), me.getValue(), djwtFinal);
-          log.info("{}: Found static public key:\"{}\" for JWT:\n{}", clientID, me.getKey(), jwtString);
-          slf.setResult(djwtFinal);
-        } catch(Exception e) {
-          slf.setFailure(e);
-        }
-      });
-    }
-    ListenableFuture<DecodedJWT> lf = FutureUtils.makeFirstResultFuture(llf,true, false);
-    Utils.getSocketExecuter().watchFuture(lf, 10000);
-    try {
-      lf.get();
-      cachedJWTs.put(tokenSha, Clock.lastKnownForwardProgressingMillis());
-      timer.close();
-      return true;
-    } catch(Exception e) {
-      StringBuilder sb = new StringBuilder();
-      for(ListenableFuture<DecodedJWT> nlf: llf) {
-        try {
-          nlf.get();
-        } catch(Exception e2) {        
-          if(e2.getCause() != null) {
-            sb.append(e2.getCause());
-            if(e2.getCause().getCause() != null) {
-            sb.append("\n\tCaused By: ");
-            sb.append(e2.getCause().getCause());
-            }
-          }
-          sb.append("\n");
-        }
+    Utils.getScheduler().execute(()->{
+      final String jwtString = djwtFinal.getToken();
+      final String keyID = djwtFinal.getKeyId();
+      final String tokenSha = Utils.SHAString(jwtString);
+      Histogram.Timer cachedTimer = jwtProcessLatency.labels("cached").startTimer();
+      Histogram.Timer timer = jwtProcessLatency.labels("lookup").startTimer();
+
+      Long time = cachedJWTs.get(tokenSha);
+      if(time != null && Clock.lastKnownForwardProgressingMillis() < time+300000) {
+        log.info("{}: JWT in valid JWT cache:{}", clientID, jwtString);
+        cachedTimer.close();
+        vslf.setResult(true);
+        return;
       }
-      log.error("{}: Could not find valid JWT:\nJWT:{}\nErrors:\n{}", clientID, jwtString, sb.toString());
-      timer.close();
-      return false;
-    }
+
+      List<ListenableFuture<DecodedJWT>> llf = new ArrayList<>();
+      for(Map.Entry<String, GuavaCachedJwkProvider> me: jwkProviders.entrySet()) {
+        final GuavaCachedJwkProvider jwkCache = me.getValue();
+        final String url = me.getKey();
+        final SettableListenableFuture<DecodedJWT> slf = new SettableListenableFuture<>(false);
+        llf.add(slf);
+        Utils.getScheduler().execute(()->{
+          try {
+            Jwk jwk = jwkCache.get(keyID);
+            checkJWT(clientID, url, jwk.getPublicKey(), djwtFinal);
+            slf.setResult(djwtFinal);
+          } catch (Exception e) {
+            slf.setFailure(e);
+          }
+        });
+      }
+      for(Map.Entry<String, PublicKey>me: staticJWTKeys.entrySet()) {
+        final SettableListenableFuture<DecodedJWT> slf = new SettableListenableFuture<>(false);
+        llf.add(slf);
+        Utils.getScheduler().execute(()->{
+          try {
+            checkJWT(clientID, me.getKey(), me.getValue(), djwtFinal);
+            log.info("{}: Found static public key:\"{}\" for JWT:\n{}", clientID, me.getKey(), jwtString);
+            slf.setResult(djwtFinal);
+          } catch(Exception e) {
+            slf.setFailure(e);
+          }
+        });
+      }
+      ListenableFuture<DecodedJWT> lf = FutureUtils.makeFirstResultFuture(llf,true, false);
+      Utils.getSocketExecuter().watchFuture(lf, 10000);
+      try {
+        lf.get();
+        cachedJWTs.put(tokenSha, Clock.lastKnownForwardProgressingMillis());
+        timer.close();
+        vslf.setResult(true);
+        return;
+      } catch(Exception e) {
+        StringBuilder sb = new StringBuilder();
+        for(ListenableFuture<DecodedJWT> nlf: llf) {
+          try {
+            nlf.get();
+          } catch(Exception e2) {        
+            if(e2.getCause() != null) {
+              sb.append(e2.getCause());
+              if(e2.getCause().getCause() != null) {
+                sb.append("\n\tCaused By: ");
+                sb.append(e2.getCause().getCause());
+              }
+            }
+            sb.append("\n");
+          }
+        }
+        log.error("{}: Could not find valid JWT:\nJWT:{}\nErrors:\n{}", clientID, jwtString, sb.toString());
+        timer.close();
+        vslf.setResult(false);
+        return;
+      }
+    });
+    return vslf;
   }
 
   private boolean checkJWT(final ClientID cid, final String kid, final PublicKey pk, final DecodedJWT claim) throws JWTValidateException {

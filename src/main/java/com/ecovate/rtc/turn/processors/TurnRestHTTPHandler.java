@@ -4,6 +4,10 @@ import java.nio.ByteBuffer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.threadly.concurrent.future.FutureCallback;
+import org.threadly.concurrent.future.ImmediateResultListenableFuture;
+import org.threadly.concurrent.future.ListenableFuture;
+import org.threadly.concurrent.future.SettableListenableFuture;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.shared.HTTPConstants;
 import org.threadly.util.ExceptionUtils;
@@ -28,9 +32,11 @@ public class TurnRestHTTPHandler implements HTTPHandler {
   }
 
   @Override
-  public SimpleResponse handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
+  public ListenableFuture<SimpleResponse> handleRequest(final ClientID clientID, final HTTPRequest httpRequest, final TurnRestConfig trc) {
     log.info("{}: processing turn user request", clientID);
-    boolean authed = false;
+    SettableListenableFuture<SimpleResponse> slf = new SettableListenableFuture<SimpleResponse>(); 
+
+    ListenableFuture<Boolean> authLF = ImmediateResultListenableFuture.BOOLEAN_FALSE_RESULT;
     boolean hasScopes = false;
     String jwtUser = null;
     if(trc.getForcedUser() != null) {
@@ -38,19 +44,18 @@ public class TurnRestHTTPHandler implements HTTPHandler {
     } else {
       jwtUser = "AutoUser-"+clientID;
     }
-    try {
-      if(trc.getIgnoreJWT()) {
-        log.info("{}: Config marked to skip JWT Auth, skipping!", clientID);
-        authed = true;
-      } else {
-        log.info("{}: Processing JWT", clientID);
-        final DecodedJWT djwt = ju.getJWT(httpRequest);
+    
+    if(trc.getIgnoreJWT()) {
+      log.info("{}: Config marked to skip JWT Auth, skipping!", clientID);
+      authLF = ImmediateResultListenableFuture.BOOLEAN_TRUE_RESULT;
+    } else {
+      log.info("{}: Processing JWT", clientID);
+      try {
+        DecodedJWT djwt = ju.getJWT(httpRequest);
         hasScopes = ju.checkScopes(trc.getRequiredScopes(), false, djwt);
-        boolean validJWT = ju.validateJWT(clientID, djwt);
-        if(hasScopes && validJWT) {
-          authed = true;
-          log.info("{}: Got valid JWT", clientID);
-          if(authed && trc.getForcedUser() == null) {
+        if(hasScopes) {
+          authLF = ju.validateJWT(clientID, djwt);
+          if(trc.getForcedUser() == null) {
             if(trc.getUserClaim() != null) {
               Claim tmp = djwt.getClaim(trc.getUserClaim());
               if(!tmp.isNull() && !tmp.asString().equals("")) {
@@ -59,25 +64,42 @@ public class TurnRestHTTPHandler implements HTTPHandler {
             }
           }
         } else {
-          log.info("{}: could not validate JWT", clientID);
+          log.info("{}: JWT missing required scopes:{}", clientID, trc.getRequiredScopes());
+          authLF = ImmediateResultListenableFuture.BOOLEAN_FALSE_RESULT;
         }
+      } catch(Exception e) {
+        log.info("{}: Exception processing auth\n{}", clientID, ExceptionUtils.stackToString(e));
+        slf.setResult(new SimpleResponse(HTTPUtils.getUnauthorizedResponse()));
+        return slf;
       }
-    } catch(Exception e) {
-      log.info("{}: Exception processing auth\n{}", clientID, ExceptionUtils.stackToString(e));
     }
-    SimpleResponse sr = null;
-    if(authed) {
-      log.info("{}: Set User to:{}", clientID, jwtUser);
-      ByteBuffer bb = ByteBuffer.wrap(TurnRestResponse.makeResponse(trc, jwtUser).toString().getBytes());
-      sr = new SimpleResponse(HTTPUtils.getOKResponse().makeBuilder()
-          .setHeader(HTTPConstants.HTTP_KEY_CONTENT_LENGTH, Integer.toString(bb.remaining()))
-          .build()
-          , bb);
-    } else {
-      sr = new SimpleResponse(HTTPUtils.getUnauthorizedResponse());
-    }
-    log.info("{}: sending back code:{}", clientID, sr.getHr().getResponseCode());
-    return sr;
+
+    final String JWTUser = jwtUser;
+    authLF.callback(new FutureCallback<Boolean>() {
+      @Override
+      public void handleResult(Boolean result) {
+        SimpleResponse sr = null;
+        if(result) {
+          log.info("{}: Set User to:{}", clientID, JWTUser);
+          ByteBuffer bb = ByteBuffer.wrap(TurnRestResponse.makeResponse(trc, JWTUser).toString().getBytes());
+          sr = new SimpleResponse(HTTPUtils.getOKResponse().makeBuilder()
+              .setHeader(HTTPConstants.HTTP_KEY_CONTENT_LENGTH, Integer.toString(bb.remaining()))
+              .build()
+              , bb);
+        } else {
+          sr = new SimpleResponse(HTTPUtils.getUnauthorizedResponse());
+        }
+        log.info("{}: sending back code:{}", clientID, sr.getHr().getResponseCode());
+        slf.setResult(sr);
+      }
+
+      @Override
+      public void handleFailure(Throwable t) {
+        slf.setFailure(t);
+      }
+    });
+ 
+    return slf;
   }
 
   @Override
@@ -85,7 +107,7 @@ public class TurnRestHTTPHandler implements HTTPHandler {
     if(path.startsWith("/turn")) return true;
     return false;
   }
-  
+
   @Override
   public String getName() {
     return "TurnHandler";

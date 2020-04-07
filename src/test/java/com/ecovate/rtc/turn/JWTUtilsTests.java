@@ -73,7 +73,7 @@ public class JWTUtilsTests {
   }
 
   @Test
-  public void goodJWT() throws JwkException, MalformedURLException {
+  public void goodJWT() throws Exception {
     String jws = Jwts.builder().setSubject("Bob").signWith(goodKeyPair.getPrivate()).compact();
 
     ClientID cid = new ClientID();
@@ -84,17 +84,17 @@ public class JWTUtilsTests {
     ju.updateStaticPublicKeys(ExtraPublicKeys);
     ju.addStaticKey(goodKeyPair.getPublic());
 
-    assertTrue(ju.validateJWT(cid, jwsD));
+    assertTrue(ju.validateJWT(cid, jwsD).get());
     ju.clearJWTCache();
     ju.removeStaticKey(goodKeyPair.getPublic());
     ju.addStaticKey(Base64.getEncoder().encodeToString(goodKeyPair.getPublic().getEncoded()));
-    assertTrue(ju.validateJWT(cid, jwsD));
-    assertTrue(ju.validateJWT(cid, jwsD));
+    assertTrue(ju.validateJWT(cid, jwsD).get());
+    assertTrue(ju.validateJWT(cid, jwsD).get());
   }
   
   
   @Test
-  public void badJWT() throws JwkException, MalformedURLException {
+  public void badJWT() throws Exception {
     String jws = Jwts.builder().setSubject("Bob").signWith(badKeyPair.getPrivate()).compact();
 
     ClientID cid = new ClientID();
@@ -104,10 +104,10 @@ public class JWTUtilsTests {
     
     ju.updateStaticPublicKeys(ExtraPublicKeys);
 
-    assertFalse(ju.validateJWT(cid, jwsD));
+    assertFalse(ju.validateJWT(cid, jwsD).get());
     ju.clearJWTCache();
-    assertFalse(ju.validateJWT(cid, jwsD));
-    assertFalse(ju.validateJWT(cid, jwsD));
+    assertFalse(ju.validateJWT(cid, jwsD).get());
+    assertFalse(ju.validateJWT(cid, jwsD).get());
   }
 
   @Test

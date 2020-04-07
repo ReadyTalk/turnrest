@@ -6,9 +6,11 @@ RUN apt-get update && apt-get install -y dumb-init && rm -rf /var/lib/apt/lists/
 ADD run.sh /run.sh
 RUN chmod 755 /run.sh
 RUN touch /env.sh
+ENV JVM_OPTS "-Xmx256m"
+ENV VERSION ${VERSION}
 
 ENV VERSION ${VERSION}
 
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["/run.sh", "java -Xmx128m -jar turnrest-${VERSION}.jar"]
+ENTRYPOINT ["/run.sh"]
+CMD ["/bin/bash", "-c", "java ${JVM_OPTS} -jar turnrest-${VERSION}-all.jar"]
 

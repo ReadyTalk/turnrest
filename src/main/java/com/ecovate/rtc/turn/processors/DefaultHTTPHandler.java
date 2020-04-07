@@ -2,6 +2,8 @@ package com.ecovate.rtc.turn.processors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.threadly.concurrent.future.ImmediateResultListenableFuture;
+import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 
 import com.ecovate.rtc.turn.HTTPHandler;
@@ -18,8 +20,8 @@ public class DefaultHTTPHandler implements HTTPHandler {
   }
 
   @Override
-  public SimpleResponse handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
-    return new SimpleResponse(HTTPUtils.getNotFoundResponse());
+  public ListenableFuture<SimpleResponse> handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
+    return new ImmediateResultListenableFuture<>(new SimpleResponse(HTTPUtils.getNotFoundResponse()));
   }
 
   @Override

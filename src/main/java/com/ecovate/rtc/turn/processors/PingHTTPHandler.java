@@ -4,6 +4,8 @@ import java.nio.ByteBuffer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.threadly.concurrent.future.ImmediateResultListenableFuture;
+import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.shared.HTTPConstants;
 import org.threadly.util.Clock;
@@ -31,10 +33,10 @@ public class PingHTTPHandler implements HTTPHandler {
   }
 
   @Override
-  public SimpleResponse handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
+  public ListenableFuture<SimpleResponse> handleRequest(ClientID clientID, HTTPRequest httpRequest, TurnRestConfig trc) {
     log.info("{}: processing ping request", clientID);
     updatePing();
-    return cachedPingResponse;
+    return new ImmediateResultListenableFuture<>(cachedPingResponse);
   }
 
   @Override

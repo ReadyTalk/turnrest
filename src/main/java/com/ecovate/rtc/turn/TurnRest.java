@@ -11,6 +11,9 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threadly.concurrent.PriorityScheduler;
+import org.threadly.concurrent.future.FutureCallback;
+import org.threadly.concurrent.future.ImmediateResultListenableFuture;
+import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.litesockets.SocketExecuter;
 import org.threadly.litesockets.protocols.http.request.HTTPRequest;
 import org.threadly.litesockets.protocols.http.shared.HTTPRequestMethod;
@@ -18,6 +21,7 @@ import org.threadly.litesockets.server.http.HTTPServer;
 import org.threadly.litesockets.server.http.HTTPServer.BodyFuture;
 import org.threadly.litesockets.server.http.HTTPServer.ResponseWriter;
 import org.threadly.util.AbstractService;
+import org.threadly.util.ExceptionUtils;
 import org.threadly.util.StringUtils;
 
 import com.codahale.metrics.health.HealthCheck;
@@ -29,11 +33,10 @@ import com.ecovate.rtc.turn.processors.TurnRestHTTPHandler;
 import com.ecovate.rtc.turn.stats.NetworkMetrics;
 
 import io.prometheus.client.Counter;
-import io.prometheus.client.Gauge;
 import io.prometheus.client.Histogram;
+import io.prometheus.client.Histogram.Timer;
 import io.prometheus.client.hotspot.BufferPoolsExports;
 import io.prometheus.client.hotspot.ClassLoadingExports;
-import io.prometheus.client.hotspot.DefaultExports;
 import io.prometheus.client.hotspot.GarbageCollectorExports;
 import io.prometheus.client.hotspot.MemoryAllocationExports;
 import io.prometheus.client.hotspot.MemoryPoolsExports;
@@ -52,20 +55,19 @@ public class TurnRest extends AbstractService {
 
   private static final Logger log = LoggerFactory.getLogger(TurnRest.class);
 
-  private final Gauge startTime = new Gauge.Builder()
-      .help("Process Starttime since epoch")
-      .name(TURN_REST+"start_time_seconds")
-      .register(Utils.getMetricsRegistry());
-  private final Counter httpResponses = new Counter.Builder()
-      .help("HTTP Response codes")
-      .labelNames("response")
-      .name(TURN_REST+"http_response")
-      .register(Utils.getMetricsRegistry());
-  
   private final Histogram httpRequestLatency = Histogram.build()
-      .name(TURN_REST+"http_requests_latency_seconds")
+      .name("http_requests_latency_seconds")
       .help("HTTP Request latency in seconds.")
-      .labelNames("method","handler")
+      .register(Utils.getMetricsRegistry());
+    private final Counter requestCounter = Counter.build()
+      .name("http_requests_total")
+      .help("http request counter")
+      .labelNames("type")
+      .register(Utils.getMetricsRegistry());
+  private final Counter responseCounter = Counter.build()
+      .name("http_response_total")
+      .help("http response counter")
+      .labelNames("type")
       .register(Utils.getMetricsRegistry());
   
 
@@ -101,7 +103,6 @@ public class TurnRest extends AbstractService {
       InetSocketAddress adminAddress, 
       File cf, 
       long fileScanTime) throws IOException {
-    startTime.setToCurrentTime();
     this.ps = ps;
     this.se = se;
     this.cf = cf;
@@ -178,91 +179,87 @@ public class TurnRest extends AbstractService {
     }
   }
 
-  private void adminHandler(HTTPRequest httpRequest, ResponseWriter rw, BodyFuture bodyListener) {
-
+  private void adminHandler(final HTTPRequest httpRequest, final ResponseWriter rw, final BodyFuture bodyListener) {
+    final Timer t = httpRequestLatency.startTimer();
     final ClientID clientID = new ClientID();
     log.info("{}: Got Admin HTTPRequest:\n{}", clientID, httpRequest.toString());
-    Histogram.Timer httpTimer = null;
     final String hrm = httpRequest.getHTTPRequestHeader().getRequestMethod();
     final String path = httpRequest.getHTTPRequestHeader().getRequestPath();
     final TurnRestConfig localConfig = config;
-    SimpleResponse sr = null;
+   ListenableFuture<SimpleResponse> lsr = null;
+    requestCounter.labels(hrm).inc();
     if(hrm.equalsIgnoreCase(HTTPRequestMethod.OPTIONS.toString())) {
-      httpTimer = httpRequestLatency.labels(hrm, "/").startTimer();
-      sr = optionsResponse;
+      lsr = new ImmediateResultListenableFuture<>(optionsResponse);
     } else {
       if(this.pingHandler.canHandle(path) ) {
-        httpTimer = httpRequestLatency.labels(hrm, this.pingHandler.getName()).startTimer();
-        sr = pingHandler.handleRequest(clientID, httpRequest, localConfig);
+        lsr = pingHandler.handleRequest(clientID, httpRequest, localConfig);
         log.info("{}: ping processed", clientID);
       } else if(this.monitorHandler.canHandle(path)) {
-        httpTimer = httpRequestLatency.labels(hrm, this.monitorHandler.getName()).startTimer();
-        sr = monitorHandler.handleRequest(clientID, httpRequest, localConfig);
+        lsr = monitorHandler.handleRequest(clientID, httpRequest, localConfig);
       } else {
-        httpTimer = httpRequestLatency.labels(hrm, this.defaultHandler.getName()).startTimer();
-        sr = this.defaultHandler.handleRequest(clientID, httpRequest, localConfig);
+        lsr = this.defaultHandler.handleRequest(clientID, httpRequest, localConfig);
       }
     }
-    if(sr != null) {
-      log.info("{}:Sending Response:\n{}", clientID, sr.getHr());
-      rw.sendHTTPResponse(sr.getHr());
-      rw.writeBody(sr.getBody());
-      rw.closeOnDone();
-      rw.done();
-      httpResponses.labels(Integer.toString(sr.getHr().getResponseCode().getId())).inc();
-    } else {
-      log.error("{}: Got unhandled Message, path:{}", clientID, path);
-      rw.closeOnDone();
-      rw.sendHTTPResponse(HTTPUtils.getNotFoundResponse());
-      rw.done();
-      httpResponses.labels(Integer.toString(HTTPUtils.getNotFoundResponse().getResponseCode().getId())).inc();
-    }
-    if(httpTimer != null) {
-      httpTimer.observeDuration();
-    }
+    
+    responseHandler(clientID, t, lsr, httpRequest, rw, bodyListener);
   }
 
-  private void handler(HTTPRequest httpRequest, ResponseWriter rw, BodyFuture bodyListener) {
-    Histogram.Timer httpTimer = null;
+  private void handler(final HTTPRequest httpRequest, final ResponseWriter rw, final BodyFuture bodyListener) {
+    final Timer t = httpRequestLatency.startTimer();
     final ClientID clientID = new ClientID();
     log.info("{}: Got HTTPRequest:\n{}", clientID, httpRequest.toString());
     final String hrm = httpRequest.getHTTPRequestHeader().getRequestMethod();
     final String path = httpRequest.getHTTPRequestHeader().getRequestPath();
     final TurnRestConfig localConfig = config;
-    SimpleResponse sr = null;
-
+    ListenableFuture<SimpleResponse> lsr = null;
+    requestCounter.labels(hrm).inc();
     if(localConfig == null) {
       log.error("Config not loaded yet!");
-      sr = new SimpleResponse(HTTPUtils.getBadRequestResponse());
+      lsr = new ImmediateResultListenableFuture<>(new SimpleResponse(HTTPUtils.getBadRequestResponse()));
     } else if(hrm.equalsIgnoreCase(HTTPRequestMethod.OPTIONS.toString())) {
-      sr = optionsResponse;
+      lsr = new ImmediateResultListenableFuture<>(optionsResponse);
     } else {
       for(HTTPHandler hh: handlers) {
         if(hh.canHandle(path)) {
-          sr = hh.handleRequest(clientID, httpRequest, localConfig);
-          httpTimer = httpRequestLatency.labels(hrm, hh.getName()).startTimer();
-          if(sr != null) {
-            break;
-          }
+          lsr = hh.handleRequest(clientID, httpRequest, localConfig);
+          break;
         }
       }
-    } 
-    if(sr != null) {
-      log.info("{}:Sending Response:\n{}", clientID, sr.getHr());
-      rw.sendHTTPResponse(sr.getHr());
-      rw.writeBody(sr.getBody());
-      rw.closeOnDone();
-      rw.done();
-      httpResponses.labels(Integer.toString(sr.getHr().getResponseCode().getId())).inc();
-    } else {
-      log.error("{}: Got unhandled Message, path:{}", clientID, path);
+    }
+    responseHandler(clientID, t, lsr, httpRequest, rw, bodyListener);
+  }
+  
+  private void responseHandler(final ClientID clientID, final Timer t, final ListenableFuture<SimpleResponse> lsr, final HTTPRequest httpRequest, final ResponseWriter rw, final BodyFuture bodyListener) {
+    if(lsr != null) {
+      lsr.callback(new FutureCallback<SimpleResponse>() {
+        @Override
+        public void handleResult(SimpleResponse sr) {
+          log.info("{}:Sending Response:\n{}", clientID, sr.getHr());
+          rw.sendHTTPResponse(sr.getHr());
+          rw.writeBody(sr.getBody());
+          rw.closeOnDone();
+          rw.done();
+          responseCounter.labels(Integer.toString(sr.getHr().getResponseCode().getId())).inc();
+          t.close();
+        }
+
+        @Override
+        public void handleFailure(Throwable exp) {
+          log.error("{}: Got Exception: {}", clientID, ExceptionUtils.stackToString(exp));
+          rw.closeOnDone();
+          rw.sendHTTPResponse(HTTPUtils.getNotFoundResponse());
+          rw.done();
+          responseCounter.labels(Integer.toString(HTTPUtils.getNotFoundResponse().getResponseCode().getId())).inc();
+          t.close();
+        }});
+    }
+    else {
+      log.error("{}: Got unhandled Message", clientID);
       rw.closeOnDone();
       rw.sendHTTPResponse(HTTPUtils.getNotFoundResponse());
       rw.done();
-      httpResponses.labels(Integer.toString(HTTPUtils.getNotFoundResponse().getResponseCode().getId())).inc();
-    }
-    if(httpTimer != null) {
-      httpTimer.observeDuration();
+      responseCounter.labels(Integer.toString(HTTPUtils.getNotFoundResponse().getResponseCode().getId())).inc();
+      t.close();
     }
   }
 

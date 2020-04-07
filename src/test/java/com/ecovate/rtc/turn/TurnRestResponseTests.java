@@ -71,14 +71,14 @@ public class TurnRestResponseTests {
   }
 
   @Test
-  public void simpleJWTTest() throws JwkException, MalformedURLException {
+  public void simpleJWTTest() throws Exception {
     TurnRestHTTPHandler handler = new TurnRestHTTPHandler(ju);
     
     String jws = Jwts.builder().setSubject("Bob").signWith(goodKeyPair.getPrivate()).compact();
     HTTPRequest hr = new HTTPRequestBuilder().setHeader(HTTPConstants.HTTP_KEY_AUTHORIZATION, "Bearer "+jws).buildHTTPRequest();
     TurnRestConfig trc = new TurnRestConfig("12312", false, null, null, null, null, null, null, 15000L, userName, password, "*");
     
-    SimpleResponse sr = handler.handleRequest(new ClientID(), hr, trc);
+    SimpleResponse sr = handler.handleRequest(new ClientID(), hr, trc).get();
     assertEquals(HTTPResponseCode.OK, sr.getHr().getResponseCode());
     byte[] ba = new byte[sr.getBody().remaining()];
     sr.getBody().duplicate().get(ba);
