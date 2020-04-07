@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threadly.concurrent.PriorityScheduler;
+import org.threadly.concurrent.future.FutureCallback;
 import org.threadly.concurrent.future.FutureUtils;
 import org.threadly.concurrent.future.ListenableFuture;
 import org.threadly.concurrent.future.SettableListenableFuture;
@@ -270,7 +271,7 @@ public class JWTUtils extends AbstractService {
         return;
       }
 
-      List<ListenableFuture<DecodedJWT>> llf = new ArrayList<>();
+      final List<ListenableFuture<DecodedJWT>> llf = new ArrayList<>();
       for(Map.Entry<String, GuavaCachedJwkProvider> me: jwkProviders.entrySet()) {
         final GuavaCachedJwkProvider jwkCache = me.getValue();
         final String url = me.getKey();
@@ -299,35 +300,41 @@ public class JWTUtils extends AbstractService {
           }
         });
       }
-      ListenableFuture<DecodedJWT> lf = FutureUtils.makeFirstResultFuture(llf,true, false);
+      
+      final ListenableFuture<DecodedJWT> lf = FutureUtils.makeFirstResultFuture(llf, true, false);
       Utils.getSocketExecuter().watchFuture(lf, 10000);
-      try {
-        lf.get();
-        cachedJWTs.put(tokenSha, Clock.lastKnownForwardProgressingMillis());
-        timer.close();
-        vslf.setResult(true);
-        return;
-      } catch(Exception e) {
-        StringBuilder sb = new StringBuilder();
-        for(ListenableFuture<DecodedJWT> nlf: llf) {
-          try {
-            nlf.get();
-          } catch(Exception e2) {        
-            if(e2.getCause() != null) {
-              sb.append(e2.getCause());
-              if(e2.getCause().getCause() != null) {
-                sb.append("\n\tCaused By: ");
-                sb.append(e2.getCause().getCause());
-              }
-            }
-            sb.append("\n");
-          }
+      lf.callback(new FutureCallback<DecodedJWT>() {
+
+        @Override
+        public void handleResult(DecodedJWT result) {
+          cachedJWTs.put(tokenSha, Clock.lastKnownForwardProgressingMillis());
+          vslf.setResult(true);
+          timer.close();
         }
-        log.error("{}: Could not find valid JWT:\nJWT:{}\nErrors:\n{}", clientID, jwtString, sb.toString());
-        timer.close();
-        vslf.setResult(false);
-        return;
-      }
+
+        @Override
+        public void handleFailure(Throwable t) {
+          StringBuilder sb = new StringBuilder();
+          for(ListenableFuture<DecodedJWT> nlf: llf) {
+            try {
+              nlf.get();
+            } catch(Exception e2) {        
+              if(e2.getCause() != null) {
+                sb.append(e2.getCause());
+                if(e2.getCause().getCause() != null) {
+                  sb.append("\n\tCaused By: ");
+                  sb.append(e2.getCause().getCause());
+                }
+              }
+              sb.append("\n");
+            }
+          }
+          log.error("{}: Could not find valid JWT:\nJWT:{}\nErrors:\n{}", clientID, jwtString, sb.toString());
+          vslf.setResult(false);
+          timer.close();
+          return;
+        }
+      });
     });
     return vslf;
   }

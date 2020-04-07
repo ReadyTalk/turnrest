@@ -107,6 +107,7 @@ public class TurnRest extends AbstractService {
     this.se = se;
     this.cf = cf;
     this.ju = new JWTUtils(ps);
+    this.ju.startIfNotStarted();
     this.publicAddress = publicAddress;
     this.adminAddress = adminAddress;
     this.fileScanTime = fileScanTime;
