@@ -57,10 +57,15 @@ public class TurnRestTest {
 
   @After
   public void end() {
+    if(ju != null) {
+      ju.reset();
+      ju.stopIfRunning();
+    }
     Utils.resetRegistries();
     se.stopIfRunning();
     ps.shutdownNow();
     hc.stopIfRunning();
+
   }
 
 

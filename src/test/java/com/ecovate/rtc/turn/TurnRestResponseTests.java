@@ -67,6 +67,7 @@ public class TurnRestResponseTests {
   @After
   public void end() {
     ju.reset();
+    ju.stopIfRunning();
     Utils.resetRegistries();
   }
 

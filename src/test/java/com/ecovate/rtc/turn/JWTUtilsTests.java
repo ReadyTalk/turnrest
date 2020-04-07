@@ -69,6 +69,7 @@ public class JWTUtilsTests {
   @After
   public void end() {
     ju.reset();
+    ju.stopIfRunning();
     Utils.resetRegistries();
   }
 
