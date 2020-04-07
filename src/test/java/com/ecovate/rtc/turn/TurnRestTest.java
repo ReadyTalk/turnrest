@@ -45,13 +45,13 @@ public class TurnRestTest {
   @Before
   public void start() {
     goodKeyPair = Keys.keyPairFor(SignatureAlgorithm.RS256);
-    ps = new PriorityScheduler(2);
+    ps = new PriorityScheduler(1);
     se = new ThreadedSocketExecuter(ps);
     se.startIfNotStarted();
     badKeyPair = Keys.keyPairFor(SignatureAlgorithm.RS256);
     userName = StringUtils.makeRandomString(25);
     password = StringUtils.makeRandomString(25);
-    hc = new HTTPClient();
+    hc = new HTTPClient(10, 10, se);
     hc.startIfNotStarted();
   }
 
@@ -97,6 +97,7 @@ public class TurnRestTest {
     String jws = Jwts.builder().setSubject("Bob").signWith(goodKeyPair.getPrivate()).compact();
 
 
+    System.out.println("------------1-------------");
 
     ClientHTTPRequest chr = new HTTPRequestBuilder()
         .setURL(new URL("http://127.0.0.1:"+port))
@@ -114,20 +115,23 @@ public class TurnRestTest {
     hr = hc.request(chr);
     assertEquals(HTTPResponseCode.Unauthorized, hr.getResponseCode());
 
-
+    System.out.println("------------2-------------");
     chr = new HTTPRequestBuilder()
         .setURL(new URL("http://127.0.0.1:"+port))
         .setPath("/turn")
         .setHeader(HTTPConstants.HTTP_KEY_AUTHORIZATION, "Bearer "+jws)
         .buildClientHTTPRequest();
+    System.out.println("------------2.5-------------");
     hr = hc.request(chr);
+    System.out.println("------------2.7-------------");
     assertEquals(HTTPResponseCode.OK, hr.getResponseCode());
     String body = hr.getBodyAsString();
+    System.out.println("------------2.8-------------");
     System.out.println(body);
     TurnRestResponse trr = Utils.GSON.fromJson(body, TurnRestResponse.class);
     assertEquals(userName, trr.getUsername());
     assertEquals(password, trr.getPassword());
-    System.out.println("-------------------------");
+    System.out.println("------------3-------------");
     trc = new TurnRestConfig("12312", 
         false, 
         new String[] {"turn:turn.test.com"}, 
@@ -169,7 +173,7 @@ public class TurnRestTest {
       }
     }.blockTillTrue(5000);
     Thread.sleep(300);
-    System.out.println("-------------------------");
+    System.out.println("-------------4------------");
     tr.getJWTUtils().clearJWTCache();
     
     chr = new HTTPRequestBuilder()
