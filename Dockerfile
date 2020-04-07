@@ -1,6 +1,6 @@
 FROM openjdk:10-jre-slim
 ARG VERSION
-COPY build/libs/turnrest-${VERSION}-all.jar /turnrest-${VERSION}.jar
+COPY build/libs/turnrest-${VERSION}-all.jar /turnrest-${VERSION}-all.jar
 RUN apt-get update && apt-get install -y dumb-init && rm -rf /var/lib/apt/lists/*
 
 ADD run.sh /run.sh
